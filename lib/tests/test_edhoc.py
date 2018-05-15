@@ -30,24 +30,20 @@ class TestEdhoc(unittest.TestCase):
         assert(decoded.verify(signature, data, hashfunc=hashlib.sha256))
 
     def test_context(self):
-        send = lambda message: (
-            self.server.on_receive(message.serialize()).serialize()
-        )
-
-        self.client.initiate_edhoc(send)
-        self.client.continue_edhoc(send)
+        message1 = self.client.initiate_edhoc()
+        message2 = self.server.on_receive(message1).serialize()
+        message3 = self.client.continue_edhoc(message2)
+        self.server.on_receive(message3)
 
         client_ctx = self.client.oscore_context
         server_ctx = self.server.oscore_context
         assert(client_ctx == server_ctx)
 
     def test_encrypt(self):
-        send = lambda message: (
-            self.server.on_receive(message.serialize()).serialize()
-        )
-
-        self.client.initiate_edhoc(send)
-        self.client.continue_edhoc(send)
+        message1 = self.client.initiate_edhoc()
+        message2 = self.server.on_receive(message1).serialize()
+        message3 = self.client.continue_edhoc(message2)
+        self.server.on_receive(message3)
 
         server_plaintext = b"hello from server"
         assert self.client.decrypt(self.server.encrypt(server_plaintext)) == server_plaintext

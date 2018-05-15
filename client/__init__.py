@@ -127,11 +127,13 @@ class Client:
         edhoc_client = EdhocClient(self.session.private_key, self.session.rs_public_key)
 
         send = lambda message: (
-            requests.post(f'{RS_URL}/.well-known/edhoc', data=message.serialize()).content
+            requests.post(f'{RS_URL}/.well-known/edhoc', data=message).content
         )
 
-        edhoc_client.initiate_edhoc(send)
-        edhoc_client.continue_edhoc(send)
+        message1 = edhoc_client.initiate_edhoc()
+        message2 = send(message1)
+        message3 = edhoc_client.continue_edhoc(message2)
+        send(message3)
         print(edhoc_client.oscore_context)
 
         return edhoc_client

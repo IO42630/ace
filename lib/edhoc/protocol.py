@@ -188,7 +188,7 @@ class Client(EdhocSession):
 
         super().__init__()
 
-    def initiate_edhoc(self, send):
+    def initiate_edhoc(self):
         session_id = os.urandom(2)
         nonce = os.urandom(8)
 
@@ -202,11 +202,10 @@ class Client(EdhocSession):
         msg1 = Message1(session_id, nonce, public_session_key)
 
         self.message1 = msg1.serialize()
-        response = send(msg1)
+        return self.message1
 
-        self.message2 = response
-
-    def continue_edhoc(self, send):
+    def continue_edhoc(self, message2):
+        self.message2 = message2
         (tag, sess_id, p_sess_id, p_nonce, p_eph_key, enc_2) = loads(self.message2)
 
         # Compute EDHOC shared secret
@@ -253,11 +252,7 @@ class Client(EdhocSession):
         print("Client IV3 =", iv_3.hex())
 
         self.message3 = msg3.serialize()
-        response = send(msg3)
-
-        print(response)
-
-        return
+        return self.message3
 
 
 if __name__ == '__main__':

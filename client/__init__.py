@@ -126,12 +126,9 @@ class Client:
     def establish_secure_context(self):
         edhoc_client = EdhocClient(self.session.private_key, self.session.rs_public_key)
 
-        def send(message):
-            sent = message.serialize()
-
-            received = requests.post(f'{RS_URL}/.well-known/edhoc', data=sent)
-
-            return sent, received.content
+        send = lambda message: (
+            requests.post(f'{RS_URL}/.well-known/edhoc', data=message.serialize()).content
+        )
 
         edhoc_client.initiate_edhoc(send)
         edhoc_client.continue_edhoc(send)

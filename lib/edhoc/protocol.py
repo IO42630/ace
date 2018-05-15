@@ -201,9 +201,9 @@ class Client(EdhocSession):
 
         msg1 = Message1(session_id, nonce, public_session_key)
 
-        (sent, response) = send(msg1)
+        self.message1 = msg1.serialize()
+        response = send(msg1)
 
-        self.message1 = sent
         self.message2 = response
 
     def continue_edhoc(self, send):
@@ -253,7 +253,7 @@ class Client(EdhocSession):
         print("Client IV3 =", iv_3.hex())
 
         self.message3 = msg3.serialize()
-        (_, response) = send(msg3)
+        response = send(msg3)
 
         print(response)
 

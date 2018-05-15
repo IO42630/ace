@@ -1,4 +1,4 @@
-import requests
+import aiohttp
 import os
 
 from ecdsa import SigningKey, VerifyingKey, NIST256p
@@ -6,8 +6,6 @@ from cbor2 import dumps, loads
 from lib.cbor.constants import Keys as CK, GrantTypes
 from lib.cose.constants import Key as Cose
 from lib.cose import CoseKey
-
-from lib.edhoc import Client as EdhocClient
 
 AS_URL = 'http://localhost:8080'
 #RS_URL = 'http://192.168.0.59:8000'
@@ -80,7 +78,7 @@ class Client:
 
         self.session = AceSession.create()
 
-    def request_access_token(self, url):
+    async def request_access_token(self, url):
         """
         Request access token from authorization server
         :param url: The URL of the authorization server
@@ -97,13 +95,11 @@ class Client:
             CK.CNF:           { Cose.COSE_KEY: CoseKey(pop_key, self.session.key_id, CoseKey.Type.ECDSA).encode() }
         }
 
-        response = requests.post(url=f"{url}/token", data=dumps(payload))
+        async with aiohttp.request('POST', f'{url}/token', data=dumps(payload)) as resp:
+            assert resp.status == 200
+            body = await resp.read()
 
-        if response.status_code != 200:
-            print(f"\t ERROR: {loads(response.content)}")
-            exit(1)
-
-        response_content = loads(response.content)
+        response_content = loads(body)
 
         token = response_content[CK.ACCESS_TOKEN]
         rs_pub_key = CoseKey.from_cose(response_content[CK.RS_CNF])
@@ -111,60 +107,24 @@ class Client:
         self.session.bind_token(token)
         self.session.bind_rs_public_key(rs_pub_key.key)
 
-    def upload_access_token(self, url):
+    async def upload_access_token(self, url):
         """
         Upload access token to resource server to establish security context
         :param url: The url of the resource server
         """
+        raise NotImplementedError
 
-        response = requests.post(url + '/authz-info', data=self.session.token)
+    async def establish_secure_context(self):
+        raise NotImplementedError
 
-        if response.status_code != 201:
-            print(f"\t ERROR: {loads(response.content)}")
-            exit(1)
-
-    def establish_secure_context(self):
-        edhoc_client = EdhocClient(self.session.private_key, self.session.rs_public_key)
-
-        send = lambda message: (
-            requests.post(f'{RS_URL}/.well-known/edhoc', data=message).content
-        )
-
-        message1 = edhoc_client.initiate_edhoc()
-        message2 = send(message1)
-        message3 = edhoc_client.continue_edhoc(message2)
-        send(message3)
-        print(edhoc_client.oscore_context)
-
-        return edhoc_client
-
-    def access_resource(self, edhoc_client, url):
+    async def access_resource(self, edhoc_client, url):
         """
         Access protected resource
         :param edhoc_client: The EDHOC client to use
         :param url: The URL to the protected resource
         :return: Response from the protected resource
         """
-        response = requests.get(url)
-
-        if response.status_code != 200:
-            print(f"\t ERROR: {loads(response.content)}")
-            exit(1)
-
-        decrypted_response = edhoc_client.decrypt(response.content)
-
-        return loads(decrypted_response)
+        raise NotImplementedError
 
     def post_resource(self, edhoc_client, url, data: bytes):
-        # Encrypt payload
-        payload = edhoc_client.encrypt(data)
-
-        response = requests.post(url, payload)
-
-        if response.status_code != 204:
-            print(f"\t ERROR: {loads(response.content)}")
-            exit(1)
-
-        #decrypted_response = edhoc_client.decrypt(response.content)
-
-        #return loads(decrypted_response)
+        raise NotImplementedError

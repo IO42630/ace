@@ -78,6 +78,20 @@ class EdhocSession:
 
         return self._oscore_context
 
+    def encrypt(self, payload: bytes):
+        return Encrypt0Message(payload).serialize(
+            iv=self.oscore_context.master_salt,
+            key=self.oscore_context.master_secret
+        )
+
+    def decrypt(self, ciphertext: bytes):
+        return Encrypt0Message.decrypt(
+            ciphertext,
+            iv=self.oscore_context.master_salt,
+            key=self.oscore_context.master_secret,
+            external_aad=b''
+        )
+
     class Session:
         def __init__(self, session_id, shared_secret):
             self.id = session_id
@@ -165,12 +179,6 @@ class Server(EdhocSession):
 
         return MessageOk()
 
-    def encrypt(self, payload: bytes):
-        return Encrypt0Message(payload).serialize(
-            iv=self.oscore_context.master_salt,
-            key=self.oscore_context.master_secret
-        )
-
 
 class Client(EdhocSession):
     def __init__(self, sk: SigningKey, server_id: VerifyingKey):
@@ -250,20 +258,6 @@ class Client(EdhocSession):
         print(response)
 
         return
-
-    def encrypt(self, payload: bytes):
-        return Encrypt0Message(payload).serialize(
-            iv=self.oscore_context.master_salt,
-            key=self.oscore_context.master_secret
-        )
-
-    def decrypt(self, ciphertext: bytes):
-        return Encrypt0Message.decrypt(
-            ciphertext,
-            iv=self.oscore_context.master_salt,
-            key=self.oscore_context.master_secret,
-            external_aad=b''
-        )
 
 
 if __name__ == '__main__':

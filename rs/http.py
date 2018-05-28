@@ -29,7 +29,7 @@ class HTTPResourceServer(ResourceServer):
 
         response = self.edhoc_server.on_receive(message)
 
-        return web.Response(status=201, body=response.serialize())
+        return web.Response(status=201, body=bytes(response))
 
     # GET /temperature
     async def get_temperature(self, request):

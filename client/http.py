@@ -25,10 +25,10 @@ class HTTPClient(Client):
         )
 
         message1 = edhoc_client.initiate_edhoc()
-        async with send(message1) as resp:
+        async with send(bytes(message1)) as resp:
             message2 = await resp.read()
         message3 = edhoc_client.continue_edhoc(message2)
-        await send(message3)
+        await send(bytes(message3))
         print(edhoc_client.oscore_context)
 
         return edhoc_client

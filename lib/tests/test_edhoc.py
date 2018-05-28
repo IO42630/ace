@@ -31,9 +31,9 @@ class TestEdhoc(unittest.TestCase):
 
     def test_context(self):
         message1 = self.client.initiate_edhoc()
-        message2 = self.server.on_receive(message1).serialize()
-        message3 = self.client.continue_edhoc(message2)
-        self.server.on_receive(message3)
+        message2 = self.server.on_receive(bytes(message1))
+        message3 = self.client.continue_edhoc(bytes(message2))
+        self.server.on_receive(bytes(message3))
 
         client_ctx = self.client.oscore_context
         server_ctx = self.server.oscore_context
@@ -41,9 +41,9 @@ class TestEdhoc(unittest.TestCase):
 
     def test_encrypt(self):
         message1 = self.client.initiate_edhoc()
-        message2 = self.server.on_receive(message1).serialize()
-        message3 = self.client.continue_edhoc(message2)
-        self.server.on_receive(message3)
+        message2 = self.server.on_receive(bytes(message1))
+        message3 = self.client.continue_edhoc(bytes(message2))
+        self.server.on_receive(bytes(message3))
 
         server_plaintext = b"hello from server"
         assert self.client.decrypt(self.server.encrypt(server_plaintext)) == server_plaintext

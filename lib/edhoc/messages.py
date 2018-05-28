@@ -1,5 +1,3 @@
-from abc import ABCMeta, abstractmethod
-
 import cbor2 as c
 
 from lib.cose import Signature1Message, Encrypt0Message
@@ -11,32 +9,48 @@ EDHOC_MSG_2 = 2
 EDHOC_MSG_3 = 3
 
 
-class EdhocMessage(metaclass=ABCMeta):
+class EdhocMessage():
 
     _tag = None
+
+    def __init__(self, bytes_object: bytes):
+        self._bytes_object = bytes_object
 
     @property
     def tag(self):
         return self._tag
 
     @property
-    @abstractmethod
     def content(self):
-        pass
+        return NotImplementedError
 
-    def serialize(self):
+    def __bytes__(self):
+        if self._bytes_object is not None:
+            return self._bytes_object
         return c.dumps(self.content)
+
+    def __add__(self, other):
+        return bytes(self)+other
+
+    def __radd__(self, other):
+        return bytes(self)+other
+
+    @classmethod
+    def from_bytes(cls, bytes_object):
+        return NotImplementedError
 
 
 class Message1(EdhocMessage):
 
     _tag = EDHOC_MSG_1
 
-    def __init__(self, session_id: bytes, nonce: bytes, ephemeral_key):
+    def __init__(self, session_id: bytes, nonce: bytes, ephemeral_key, bytes_object: bytes=None):
+        super().__init__(bytes_object)
         self.session_id = session_id
         self.nonce = nonce
         self.ephemeral_key = ephemeral_key
 
+    #TODO delete
     @property
     def content(self):
         return [self.tag,
@@ -45,22 +59,25 @@ class Message1(EdhocMessage):
                 ecdh_key_to_cose(self.ephemeral_key, encode=True)]
 
     @classmethod
-    def deserialize(cls, encoded: bytes):
-        (tag, session_id, nonce, cose_key) = c.loads(encoded)
+    def from_bytes(cls, bytes_object):
+        (tag, session_id, nonce, cose_key) = c.loads(bytes_object)
 
         if tag != EDHOC_MSG_1:
             raise ValueError("Not a MSG1 type")
 
-        return Message1(session_id=session_id,
+        msg1 = Message1(session_id=session_id,
                         nonce=nonce,
                         ephemeral_key=ecdh_cose_to_key(cose_key))
+        assert (c.dumps(msg1.content)==bytes_object)
+        return msg1
 
 
 class Message2(EdhocMessage):
 
     _tag = EDHOC_MSG_2
 
-    def __init__(self, session_id: bytes, peer_session_id: bytes, peer_nonce: bytes, peer_ephemeral_key):
+    def __init__(self, session_id: bytes, peer_session_id: bytes, peer_nonce: bytes, peer_ephemeral_key, bytes_object:bytes=None):
+        super().__init__(bytes_object)
         self.session_id = session_id
         self.peer_session_id = peer_session_id
         self.peer_nonce = peer_nonce
@@ -106,8 +123,8 @@ class Message2(EdhocMessage):
                                  unprotected_header=c.dumps(unprotected)).serialize_signed(key)
 
     @classmethod
-    def deserialize(cls, encoded: bytes):
-        (tag, session_id, peer_session_id, peer_nonce, cose_key, cose_enc_2) = c.loads(encoded)
+    def from_bytes(cls, bytes_object):
+        (tag, session_id, peer_session_id, peer_nonce, cose_key, cose_enc_2) = c.loads(bytes_object)
 
         if tag != EDHOC_MSG_2:
             raise ValueError("Not a MSG2 type")
@@ -119,9 +136,11 @@ class Message2(EdhocMessage):
 
 
 class Message3(EdhocMessage):
+
     _tag = EDHOC_MSG_3
 
-    def __init__(self, peer_session_id):
+    def __init__(self, peer_session_id, bytes_object: bytes=None):
+        super().__init__(bytes_object)
         self.peer_session_id = peer_session_id
 
         self._aad_3 = None
@@ -159,7 +178,7 @@ class Message3(EdhocMessage):
                                  unprotected_header=c.dumps(unprotected)).serialize_signed(key)
 
 
-class MessageOk:
+class MessageOk(EdhocMessage):
 
-    def serialize(self):
-        return c.dumps(["OK"])
+    def __init__(self):
+        super().__init__(c.dumps(["OK"]))

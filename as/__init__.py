@@ -2,13 +2,13 @@ import time
 import os
 
 from aiohttp import web
+from aiohttp.abc import AbstractRouter
 from cbor2 import dumps, loads
 from ecdsa import VerifyingKey, SigningKey, NIST256p
 
 from lib.cbor.constants import Keys as CK
 from lib.cose.constants import Key as Cose
 from lib.cose import CoseKey
-from lib.http_server import HttpServer
 from .client_registry import ClientRegistry
 from .key_registry import KeyRegistry
 from .token_registry import TokenRegistry
@@ -21,9 +21,9 @@ RS_PUBLIC_KEY = VerifyingKey.from_der(bytes.fromhex("3059301306072a8648ce3d02010
                                                     "7a"))
 
 
-class AuthorizationServer(HttpServer):
+class AuthorizationServer():
 
-    def __init__(self, signature_key: SigningKey):
+    def __init__(self, signature_key: SigningKey, router: AbstractRouter):
         self.signature_key = signature_key
         self.client_registry = ClientRegistry()
         self.client_registry.register_client(client_id="ace_client_1",
@@ -31,7 +31,6 @@ class AuthorizationServer(HttpServer):
         self.key_registry = KeyRegistry()
         self.token_registry = TokenRegistry()
 
-    def on_start(self, router):
         router.add_get('/clients', self.clients)
         router.add_post('/token', self.token)
         router.add_post('/introspect', self.introspect)

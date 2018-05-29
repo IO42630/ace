@@ -1,10 +1,13 @@
-from . import Client, AS_URL, RS_URL
+from . import Client, AS_URL
 
 from cbor2 import dumps, loads
 import aiohttp
 import asyncio
 
 from lib.edhoc import Client as EdhocClient
+
+#RS_URL = 'http://192.168.0.59:8000'
+RS_URL = 'http://localhost:8081'
 
 
 class HTTPClient(Client):

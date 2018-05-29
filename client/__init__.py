@@ -8,8 +8,6 @@ from lib.cose.constants import Key as Cose
 from lib.cose import CoseKey
 
 AS_URL = 'http://localhost:8080'
-#RS_URL = 'http://192.168.0.59:8000'
-RS_URL = 'http://localhost:8081'
 
 
 class AceSession:

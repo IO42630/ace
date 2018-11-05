@@ -6,6 +6,18 @@ from lib.edhoc.util import ecdsa_key_to_cose, ecdsa_cose_to_key
 
 
 class TestEdhoc(unittest.TestCase):
+
+    def setUp(self):
+        client_sk = SigningKey.generate(curve=NIST256p)
+        server_sk = SigningKey.generate(curve=NIST256p)
+
+        client_id = client_sk.get_verifying_key()
+        server_id = server_sk.get_verifying_key()
+
+        self.client = Client(client_sk, server_id, kid=b'client-1234')
+        self.server = Server(server_sk)
+        self.server.add_peer_identity(self.client.kid, client_id)
+
     def test_signature(self):
         sk = SigningKey.generate(curve=NIST384p)
         vk = sk.get_verifying_key()
@@ -19,81 +31,79 @@ class TestEdhoc(unittest.TestCase):
         assert(decoded.verify(signature, data, hashfunc=hashlib.sha256))
 
     def test_context(self):
-        client_sk = SigningKey.generate(curve=NIST256p)
-        server_sk = SigningKey.generate(curve=NIST256p)
+        message1 = self.client.initiate_edhoc()
+        message2 = self.server.on_receive(bytes(message1))
+        message3 = self.client.continue_edhoc(bytes(message2))
+        self.server.on_receive(bytes(message3))
 
-        client_id = client_sk.get_verifying_key()
-        server_id = server_sk.get_verifying_key()
-
-        server = Server(server_sk)
-
-        def send(message):
-            sent = message.serialize()
-            received = server.on_receive(sent).serialize()
-
-            return sent, received
-
-        client = Client(client_sk, server_id, kid=b'client-1234', on_send=send)
-        server.add_peer_identity(client.kid, client_id)
-
-        client_ctx = client.establish_context()
-        server_ctx = server.oscore_context_for_recipient(client_ctx.sender_id)
+        client_ctx = self.client.session.oscore_context
+        server_ctx = self.server.oscore_context_for_recipient(client_ctx.sender_id)
 
         assert (client_ctx.master_secret == server_ctx.master_secret)
         assert (client_ctx.master_salt == server_ctx.master_salt)
 
+    def test_encrypt(self):
+        message1 = self.client.initiate_edhoc()
+        message2 = self.server.on_receive(bytes(message1))
+        message3 = self.client.continue_edhoc(bytes(message2))
+        self.server.on_receive(bytes(message3))
+
+        client_ctx = self.client.session.oscore_context
+        server_ctx = self.server.oscore_context_for_recipient(client_ctx.sender_id)
+
+        server_plaintext = b"hello from server"
+        assert client_ctx.decrypt(server_ctx.encrypt(server_plaintext)) == server_plaintext
+
+        client_plaintext = b"hello from client"
+        assert server_ctx.decrypt(client_ctx.encrypt(client_plaintext)) == client_plaintext
+
     def test_multiple_clients(self):
-        # Create server
-        server_key = SigningKey.generate(curve=NIST256p)
-        server_id = server_key.get_verifying_key()
-        server = Server(server_key)
-
-        # Bypass any network, simply invoke receive callback on server
-        def test_send(message):
-            sent = message.serialize()
-            received = server.on_receive(sent).serialize()
-
-            return sent, received
-
         # 1st Client
         client1_key = SigningKey.generate(curve=NIST256p)
         client1_id = client1_key.get_verifying_key()
 
         client1 = Client(client1_key,
-                         server_id,
-                         kid=b'client-1-id',
-                         on_send=test_send)
+                         self.server.vk,
+                         kid=b'client-1-id')
 
         # 2nd Client
         client2_key = SigningKey.generate(curve=NIST256p)
         client2_id = client2_key.get_verifying_key()
 
         client2 = Client(client2_key,
-                         server_id,
-                         kid=b'client-2-id',
-                         on_send=test_send)
+                         self.server.vk,
+                         kid=b'client-2-id')
 
         # Let server know about clients (simulate Uploading of Access Tokens)
-        server.add_peer_identity(client1.kid, client1_id)
-        server.add_peer_identity(client2.kid, client2_id)
+        self.server.add_peer_identity(client1.kid, client1_id)
+        self.server.add_peer_identity(client2.kid, client2_id)
 
-        client1_context = client1.establish_context()
-        client2_context = client2.establish_context()
+        message1 = client1.initiate_edhoc()
+        message2 = self.server.on_receive(bytes(message1))
+        message3 = client1.continue_edhoc(bytes(message2))
+        self.server.on_receive(bytes(message3))
+        client1_context = client1.session.oscore_context
 
-        server_context_1 = server.oscore_context_for_recipient(client1_context.sender_id)
-        server_context_2 = server.oscore_context_for_recipient(client2_context.sender_id)
+        message1 = client2.initiate_edhoc()
+        message2 = self.server.on_receive(bytes(message1))
+        message3 = client2.continue_edhoc(bytes(message2))
+        self.server.on_receive(bytes(message3))
+        client2_context = client1.session.oscore_context
 
-        assert (client1_context.master_secret == server_context_1.master_secret)
-        assert (client1_context.master_salt == server_context_1.master_salt)
+        server_context1 = self.server.oscore_context_for_recipient(client1_context.sender_id)
+        server_context2 = self.server.oscore_context_for_recipient(client2_context.sender_id)
 
-        assert (client2_context.master_secret == server_context_2.master_secret)
-        assert (client2_context.master_salt == server_context_2.master_salt)
+        assert (client1_context.master_secret == server_context1.master_secret)
+        assert (client1_context.master_salt == server_context1.master_salt)
+
+        assert (client2_context.master_secret == server_context2.master_secret)
+        assert (client2_context.master_salt == server_context2.master_salt)
 
         msg1 = b'Server to Client 1'
         msg2 = b'Server to Client 2'
 
-        assert (client1_context.decrypt(server_context_1.encrypt(msg1)) == msg1)
-        assert (client2_context.decrypt(server_context_2.encrypt(msg2)) == msg2)
+        assert (client1_context.decrypt(server_context1.encrypt(msg1)) == msg1)
+        assert (client2_context.decrypt(server_context2.encrypt(msg2)) == msg2)
 
     def test_oscore_context(self):
         ctx = OscoreContext(secret=bytes.fromhex("0102030405060708090a0b0c0d0e0f10"),

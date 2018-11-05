@@ -1,1 +1,1 @@
-from .resource_server import ResourceServer
+from .resource_server import ResourceServer, HTTPResourceServer

@@ -42,18 +42,14 @@ def cose_kdf_context(algorithm_id: str, key_length: int, other: bytes):
 
 def message_digest(message: bytes) -> bytes:
     digest = hashes.Hash(hashes.SHA256(), backend=backend)
-    digest.update(message)
+    digest.update(bytes(message))
     return digest.finalize()
 
 
 class EdhocSession:
 
     def __init__(self):
-        self.id: bytes = None
-        self.peer_id: bytes = None
-        self.shared_secret: bytes = None
-        self.private_key = None
-        self.peer_public_key = None
+        self.session = self.Session(session_id=None, shared_secret=None)
 
         self.message1: bytes = None
         self.message2: bytes = None
@@ -90,6 +86,13 @@ class EdhocSession:
 
         return self._oscore_context
 
+    class Session:
+        def __init__(self, session_id, shared_secret):
+            self.id = session_id
+            self.shared_secret = shared_secret
+            self.private_key = None
+            self.public_key = None
+
 
 class Server:
     def __init__(self, sk: SigningKey):
@@ -121,7 +124,7 @@ class Server:
 
     def on_msg_1(self, message: bytes, session: EdhocSession):
         session.message1 = message
-        msg = Message1.deserialize(message)
+        msg = Message1.from_bytes(message)
 
         session_id = os.urandom(2)
         nonce = os.urandom(8)
@@ -160,7 +163,7 @@ class Server:
         #print("Server K2 =", k_2.hex())
         #print("Server IV2 =", iv_2.hex())
 
-        session.message2 = msg2.serialize()
+        session.message2 = msg2
         return msg2
 
     def on_msg_3(self, message: bytes, session: EdhocSession):
@@ -200,21 +203,18 @@ class Server:
 
 
 class Client:
-    def __init__(self, sk: SigningKey, server_id: VerifyingKey, kid: bytes, on_send):
+    def __init__(self, sk: SigningKey, server_id: VerifyingKey, kid: bytes):
         self.sk = sk
         self.vk = sk.get_verifying_key()
         self.server_id = server_id
         self.kid = kid
-        self.on_send = on_send
         self.session = EdhocSession()
-
         super().__init__()
 
     def establish_context(self):
-        self._initiate_edhoc()
-        return self._continue_edhoc()
+        raise NotImplementedError()
 
-    def _initiate_edhoc(self):
+    def initiate_edhoc(self):
         session_id = os.urandom(2)
         nonce = os.urandom(8)
 
@@ -226,14 +226,13 @@ class Client:
         self.session.public_key = public_session_key
 
         msg1 = Message1(session_id, nonce, public_session_key)
+        self.session.message1 = msg1
 
-        (sent, response) = self.on_send(msg1)
+        return msg1
 
-        self.session.message1 = sent
-        self.session.message2 = response
-
-    def _continue_edhoc(self):
-        (tag, sess_id, p_sess_id, p_nonce, p_eph_key, enc_2) = loads(self.session.message2)
+    def continue_edhoc(self, message2):
+        self.session.message2 = message2
+        (tag, sess_id, p_sess_id, p_nonce, p_eph_key, enc_2) = loads(message2)
 
         # Compute EDHOC shared secret
         p_eph_key = ecdh_cose_to_key(p_eph_key)
@@ -242,7 +241,7 @@ class Client:
         self.session.peer_id = p_sess_id
 
         # Derive encryption key
-        msg2 = Message2(sess_id, p_sess_id, p_nonce, p_eph_key)
+        msg2 = Message2(sess_id, p_sess_id, p_nonce, p_eph_key, bytes_object=message2)
         aad2 = msg2.aad_2(message_digest, self.session.message1)
 
         k_2 = derive_key(ecdh_shared_secret,
@@ -279,9 +278,5 @@ class Client:
         #print("Client K3 =", k_3.hex())
         #print("Client IV3 =", iv_3.hex())
 
-        self.session.message3 = msg3.serialize()
-        (_, response) = self.on_send(msg3)
-
-        #print(response)
-
-        return self.session.oscore_context
+        self.session.message3 = msg3
+        return msg3

@@ -2,6 +2,7 @@ import time
 import os
 
 from aiohttp import web
+from aiohttp.abc import AbstractRouter
 from cbor2 import dumps, loads
 from ecdsa import VerifyingKey, SigningKey
 from collections import namedtuple
@@ -10,21 +11,23 @@ from typing import Dict
 from lib.cbor.constants import Keys as CK
 from lib.cose.constants import Key as Cose
 from lib.cose import CoseKey
-from lib.http_server import HttpServer
 from .client_registry import ClientRegistry, Client
 from .key_registry import KeyRegistry
 from .token_registry import TokenRegistry
 from lib.ace.aus.access_token import AccessToken
 
 
-class AuthorizationServer(HttpServer):
+class AuthorizationServer():
 
-    def __init__(self, identity: SigningKey):
+    def __init__(self, identity: SigningKey, router: AbstractRouter):
         self.identity = identity
         self.client_registry = ClientRegistry()
         self.key_registry = KeyRegistry()
         self.token_registry = TokenRegistry()
         self.resource_servers: Dict[str, ResourceServer] = {}
+
+        router.add_post('/token', self.token)
+        router.add_post('/introspect', self.introspect)
 
     def register_client(self, client_id, client_secret, grants):
         self.client_registry.register_client(Client(client_id, client_secret, grants))
@@ -34,10 +37,6 @@ class AuthorizationServer(HttpServer):
 
     def public_key(self):
         self.identity.get_verifying_key()
-
-    def on_start(self, router):
-        router.add_post('/token', self.token)
-        router.add_post('/introspect', self.introspect)
 
     def verify_client(self, client_id, client_secret):
         return self.client_registry.check_secret(client_id, client_secret)

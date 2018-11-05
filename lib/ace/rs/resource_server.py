@@ -1,6 +1,5 @@
-import requests
-
-from aiohttp import web
+from aiohttp import web, request
+from aiohttp.abc import AbstractRouter
 from cbor2 import dumps, loads
 from ecdsa import VerifyingKey, SigningKey
 
@@ -10,7 +9,6 @@ from lib.cose.constants import Key as Cose, Header
 from lib.cose.cose import SignatureVerificationFailed
 from lib.cose import CoseKey
 from lib.edhoc import Server as EdhocServer
-from lib.http_server import HttpServer
 from .token_cache import TokenCache
 
 
@@ -26,7 +24,11 @@ class IntrospectNotActiveError(Exception):
     pass
 
 
-class ResourceServer(HttpServer):
+class NotAuthorizedException(Exception):
+    pass
+
+
+class ResourceServer(object):
 
     def __init__(self, audience: str,
                  identity: SigningKey,
@@ -46,7 +48,78 @@ class ResourceServer(HttpServer):
 
         self.edhoc_server = EdhocServer(self.identity)
 
-    def on_start(self, router):
+    def oscore_context(self, unprotected_header, scope):
+        kid = unprotected_header[Header.KID]
+
+        # Retrieve token for recipient
+        pop_key_id = self.edhoc_server.pop_key_id_for_recipient(rid=kid)
+        token = self.token_cache.get_token(pop_key_id=pop_key_id)
+
+        # Verify scope
+        authorized_scopes = token[CK.SCOPE].split(",")
+        if scope not in authorized_scopes:
+            raise NotAuthorizedException()
+
+        return self.edhoc_server.oscore_context_for_recipient(kid)
+
+    async def edhoc(self, request):
+        raise NotImplementedError
+
+    async def authz_info(self, request):
+        raise NotImplementedError
+
+    async def introspect(self, token: str):
+        """
+        POST token to AS for introspection using RS as a client of the AS
+        :param token: The token to be introspected (not self-contained)
+        """
+
+        cose = {
+            CK.TOKEN: token,
+            CK.TOKEN_TYPE_HINT: 'pop',
+            CK.CLIENT_ID: self.client_id,
+            CK.CLIENT_SECRET: self.client_secret
+        }
+
+        async with request('POST', f'{self.as_url}/introspect', data=dumps(cose)) as resp:
+            if resp.status != 201:
+                raise IntrospectionFailedError()
+            response_payload = loads(await resp.read())
+        """ ACE p. 61
+        Response-Payload:
+        {
+            "active" : true,
+            "aud" : "lockOfDoor4711",
+            "scope" : "open, close",
+            "iat" : 1311280970,
+            "cnf" : {
+                "kid" : b64’JDLUhTMjU2IiwiY3R5Ijoi ...’
+            }
+        }
+        """
+
+        if resp.status != 201:
+            raise IntrospectionFailedError()
+
+        if not response_payload[CK.ACTIVE]:
+            raise IntrospectNotActiveError()
+
+        if response_payload[CK.AUD] != self.audience:
+            raise AudienceMismatchError()
+
+        return response_payload
+
+class HTTPResourceServer(ResourceServer):
+
+    def __init__(self, audience: str,
+                 identity: SigningKey,
+                 as_url: str,
+                 as_public_key: VerifyingKey,
+                 router: AbstractRouter,
+                 client_id=None,
+                 client_secret=None):
+
+        super().__init__(audience, identity, as_url, as_public_key, client_id, client_secret)
         router.add_post('/authz-info', self.authz_info)
         router.add_post('/.well-known/edhoc', self.edhoc)
 
@@ -54,20 +127,12 @@ class ResourceServer(HttpServer):
         async def wrapped_handler(request):
             payload = await request.content.read()
             prot, unprot, cipher = loads(payload).value
-            kid = unprot[Header.KID]
-
-            # Retrieve token for recipient
-            pop_key_id = self.edhoc_server.pop_key_id_for_recipient(rid=kid)
-            token = self.token_cache.get_token(pop_key_id=pop_key_id)
-
-            # Verify scope
-            authorized_scopes = token[CK.SCOPE].split(",")
-            if scope not in authorized_scopes:
+            try:
+                oscore_context = self.oscore_context(unprot, scope)
+            except NotAuthorizedException:
                 return web.Response(status=401, body=dumps({'error': 'not authorized'}))
 
-            oscore_context = self.edhoc_server.oscore_context_for_recipient(kid)
-
-            return handler(request, payload, token, oscore_context)
+            return await handler(request, payload, None, oscore_context)
 
         return wrapped_handler
 
@@ -76,9 +141,8 @@ class ResourceServer(HttpServer):
 
         response = self.edhoc_server.on_receive(message)
 
-        return web.Response(status=201, body=response.serialize())
+        return web.Response(status=201, body=bytes(response))
 
-    # POST /authz_info
     async def authz_info(self, request):
         # Extract access token
         access_token = await request.content.read()
@@ -106,42 +170,3 @@ class ResourceServer(HttpServer):
         self.edhoc_server.add_peer_identity(pop_key.key_id, pop_key.key)
 
         return web.Response(status=201)
-
-    def introspect(self, token: str):
-        """
-        POST token to AS for introspection using RS as a client of the AS
-        :param token: The token to be introspected (not self-contained)
-        """
-
-        request = {
-            CK.TOKEN: token,
-            CK.TOKEN_TYPE_HINT: 'pop',
-            CK.CLIENT_ID: self.client_id,
-            CK.CLIENT_SECRET: self.client_secret
-        }
-
-        response = requests.post(f"{self.as_url}/introspect", data=dumps(request))
-        response_payload = loads(response.content)
-        """ ACE p. 61
-        Response-Payload:
-        {
-            "active" : true,
-            "aud" : "lockOfDoor4711",
-            "scope" : "open, close",
-            "iat" : 1311280970,
-            "cnf" : {
-                "kid" : b64’JDLUhTMjU2IiwiY3R5Ijoi ...’
-            }
-        }
-        """
-
-        if response.status_code != 201:
-            raise IntrospectionFailedError()
-
-        if not response_payload[CK.ACTIVE]:
-            raise IntrospectNotActiveError()
-
-        if response_payload[CK.AUD] != self.audience:
-            raise AudienceMismatchError()
-
-        return response_payload

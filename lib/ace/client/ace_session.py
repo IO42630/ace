@@ -15,34 +15,22 @@ class AceSession:
         self.pop_key_id = pop_key_id
         self.token = None
         self.rs_url = None
-        self.rs_public_key = None
+        self.edhoc_client = EdhocClient(self.private_pop_key,
+                                   None,
+                                   kid=self.pop_key_id)
         self.oscore_context = None
 
-    def ensure_oscore_context(self, rs_url: str):
-        if self.oscore_context is None:
-            self.establish_oscore_context(rs_url)
+    # @property
+    # def oscore_context(self):
+    #     return self.edhoc_client.session.oscore_context
 
-    def establish_oscore_context(self, rs_url: str):
-        if self.oscore_context is not None:
-            return
+    @property
+    def rs_public_key(self):
+        return self.edhoc_client.server_id
 
-        def send(message):
-            sent = message.serialize()
-
-            received = requests.post(f'{rs_url}/.well-known/edhoc', data=sent)
-
-            return sent, received.content
-
-        edhoc_client = EdhocClient(self.private_pop_key,
-                                   self.rs_public_key,
-                                   kid=self.pop_key_id,
-                                   on_send=send)
-
-        oscore_context = edhoc_client.establish_context()
-
-        print(oscore_context)
-
-        self.oscore_context = oscore_context
+    @rs_public_key.setter
+    def rs_public_key(self, value):
+        self.edhoc_client.server_id = value
 
     @classmethod
     def create(cls, key_id: bytes):

@@ -1,3 +1,7 @@
+import asyncio
+
+from aiohttp import web
+
 from lib.ace.aus import AuthorizationServer, Grant
 from ecdsa import VerifyingKey, SigningKey
 
@@ -12,7 +16,9 @@ as_identity = SigningKey.from_der(
     )
 )
 
-server = AuthorizationServer(identity=as_identity)
+loop = asyncio.get_event_loop()
+app = web.Application(loop=loop)
+server = AuthorizationServer(as_identity, app.router)
 
 # Pre-register resource servers
 server.register_resource_server(
@@ -45,4 +51,4 @@ server.register_client(
     ]
 )
 
-server.start(port=8080)
+web.run_app(app, host='localhost', port=8080)

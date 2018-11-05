@@ -1,3 +1,6 @@
+import asyncio
+from aiohttp import web
+
 from . import TemperatureServer
 from ecdsa import VerifyingKey, SigningKey
 
@@ -20,11 +23,15 @@ as_public_key = VerifyingKey.from_der(
     )
 )
 
+loop = asyncio.get_event_loop()
+app = web.Application(loop=loop)
+
 server = TemperatureServer(
     audience="tempSensor0",
     identity=rs_identity,
     as_url='http://localhost:8080',
-    as_public_key=as_public_key
+    as_public_key=as_public_key,
+    router=app.router
 )
 
-server.start(port=8081)
+web.run_app(app, host='localhost', port=8081)

@@ -1,6 +1,5 @@
-from abc import ABCMeta, abstractmethod
-
-import cbor2 as c
+from cbor2 import dumps, loads
+from cbor2.encoder import encode_array
 
 from lib.cose import Signature1Message, Encrypt0Message
 from lib.cose.cose import Header, Algorithm
@@ -11,56 +10,80 @@ EDHOC_MSG_2 = 2
 EDHOC_MSG_3 = 3
 
 
-class EdhocMessage(metaclass=ABCMeta):
+class EdhocMessage():
 
     _tag = None
+
+    def __init__(self, bytes_object: bytes):
+        self._bytes_object = bytes_object
 
     @property
     def tag(self):
         return self._tag
 
     @property
-    @abstractmethod
-    def content(self):
-        pass
+    def _data(self):
+        return NotImplementedError
 
-    def serialize(self):
-        return c.dumps(self.content)
+    def __getitem__(self, index):
+        return self._data[index]
+
+    def __len__(self):
+        return len(self._data)
+
+    def __bytes__(self):
+        if self._bytes_object is not None:
+            return self._bytes_object
+        return dumps(self, default=encode_array)
+
+    def __add__(self, other):
+        return bytes(self)+other
+
+    def __radd__(self, other):
+        return other+bytes(self)
+
+    @classmethod
+    def from_bytes(cls, bytes_object):
+        return NotImplementedError
 
 
 class Message1(EdhocMessage):
 
     _tag = EDHOC_MSG_1
 
-    def __init__(self, session_id: bytes, nonce: bytes, ephemeral_key):
+    def __init__(self, session_id: bytes, nonce: bytes, ephemeral_key, bytes_object: bytes=None):
+        super().__init__(bytes_object)
         self.session_id = session_id
         self.nonce = nonce
         self.ephemeral_key = ephemeral_key
 
     @property
-    def content(self):
-        return [self.tag,
+    def _data(self):
+        return (self.tag,
                 self.session_id,
                 self.nonce,
-                ecdh_key_to_cose(self.ephemeral_key, encode=True)]
+                ecdh_key_to_cose(self.ephemeral_key, encode=True))
 
     @classmethod
-    def deserialize(cls, encoded: bytes):
-        (tag, session_id, nonce, cose_key) = c.loads(encoded)
+    def from_bytes(cls, bytes_object):
+        (tag, session_id, nonce, cose_key) = loads(bytes_object)
 
         if tag != EDHOC_MSG_1:
             raise ValueError("Not a MSG1 type")
 
-        return Message1(session_id=session_id,
+        msg1 = Message1(session_id=session_id,
                         nonce=nonce,
                         ephemeral_key=ecdh_cose_to_key(cose_key))
+        assert (dumps(msg1, default=encode_array) == bytes_object)
+        return msg1
 
 
 class Message2(EdhocMessage):
 
     _tag = EDHOC_MSG_2
 
-    def __init__(self, session_id: bytes, peer_session_id: bytes, peer_nonce: bytes, peer_ephemeral_key):
+    def __init__(self, session_id: bytes, peer_session_id: bytes, peer_nonce: bytes, peer_ephemeral_key, bytes_object:bytes=None):
+        super().__init__(bytes_object)
         self.session_id = session_id
         self.peer_session_id = peer_session_id
         self.peer_nonce = peer_nonce
@@ -79,22 +102,22 @@ class Message2(EdhocMessage):
         pass
 
     @property
-    def content(self):
-        return [*self.data_2, self._cose_enc_2]
+    def _data(self):
+        return (*self.data_2, self._cose_enc_2)
 
     @property
     def data_2(self):
-        return [self.tag,
+        return (self.tag,
                 self.session_id,
                 self.peer_session_id,
                 self.peer_nonce,
-                ecdh_key_to_cose(self.peer_key, kid=b'abcd', encode=True)]
+                ecdh_key_to_cose(self.peer_key, kid=b'abcd', encode=True))
 
     def aad_2(self, hashfunc, message_1: bytes):
-        return hashfunc(message_1 + c.dumps(self.data_2))
+        return hashfunc(message_1 + dumps(self.data_2))
 
     def cose_enc_2(self, key, iv):
-        protected_header = c.dumps({Header.ALG: Algorithm.AES_CCM_64_64_128})
+        protected_header = dumps({Header.ALG: Algorithm.AES_CCM_64_64_128})
         unprotected_header = { Header.IV: iv }
 
         return Encrypt0Message(
@@ -105,19 +128,19 @@ class Message2(EdhocMessage):
         ).serialize(iv, key)
 
     def cose_sig_v(self, key):
-        protected = c.dumps({ Header.ALG: Algorithm.ES256 })
+        protected = dumps({ Header.ALG: Algorithm.ES256 })
         unprotected = { Header.KID: b'AsymmetricECDSA256' }
 
         return Signature1Message(
             payload=b'',
             external_aad=self._aad_2,
             protected_header=protected,
-            unprotected_header=c.dumps(unprotected)
+            unprotected_header=dumps(unprotected)
         ).serialize_signed(key)
 
     @classmethod
-    def deserialize(cls, encoded: bytes):
-        (tag, session_id, peer_session_id, peer_nonce, cose_key, cose_enc_2) = c.loads(encoded)
+    def from_bytes(cls, bytes_object):
+        (tag, session_id, peer_session_id, peer_nonce, cose_key, cose_enc_2) = loads(bytes_object)
 
         if tag != EDHOC_MSG_2:
             raise ValueError("Not a MSG2 type")
@@ -129,9 +152,11 @@ class Message2(EdhocMessage):
 
 
 class Message3(EdhocMessage):
+
     _tag = EDHOC_MSG_3
 
-    def __init__(self, peer_session_id):
+    def __init__(self, peer_session_id, bytes_object: bytes=None):
+        super().__init__(bytes_object)
         self.peer_session_id = peer_session_id
 
         self._aad_3 = None
@@ -146,18 +171,18 @@ class Message3(EdhocMessage):
         self._cose_enc_3 = self.cose_enc_3(key, iv)
 
     @property
-    def content(self):
-        return [*self.data_3, self._cose_enc_3]
+    def _data(self):
+        return (*self.data_3, self._cose_enc_3)
 
     @property
     def data_3(self):
-        return [self.tag, self.peer_session_id]
+        return (self.tag, self.peer_session_id)
 
     def aad_3(self, hashfunc, message1: bytes, message2: bytes):
-        return hashfunc(hashfunc(message1 + message2) + c.dumps(self.data_3))
+        return hashfunc(hashfunc(message1 + message2) + dumps(self.data_3))
 
     def cose_enc_3(self, key, iv):
-        protected_header = c.dumps({Header.ALG: Algorithm.AES_CCM_64_64_128})
+        protected_header = dumps({Header.ALG: Algorithm.AES_CCM_64_64_128})
         unprotected_header = {Header.IV: iv}
 
         return Encrypt0Message(
@@ -168,24 +193,24 @@ class Message3(EdhocMessage):
         ).serialize(iv, key)
 
     def cose_sig_u(self, key, kid: bytes):
-        protected = c.dumps({ Header.ALG: Algorithm.ES256 })
+        protected = dumps({ Header.ALG: Algorithm.ES256 })
         unprotected = { Header.KID: kid }
 
         return Signature1Message(
             payload=b'',
             external_aad=self._aad_3,
             protected_header=protected,
-            unprotected_header=c.dumps(unprotected)
+            unprotected_header=dumps(unprotected)
         ).serialize_signed(key)
 
 
-class MessageOk:
+class MessageOk(EdhocMessage):
 
-    def serialize(self):
-        return c.dumps(["OK"])
+    def __init__(self):
+        super().__init__(dumps(["OK"]))
 
 
 class MessageError:
 
-    def serialize(self):
-        return c.dumps(["Error"])
+    def __init__(self):
+        super().__init__(dumps(["Error"]))

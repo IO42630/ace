@@ -1,6 +1,6 @@
 import asyncio
 from cbor2 import dumps
-from lib.ace.client import HTTPClient
+from lib.ace.client.http import HTTPClient
 
 AS_URL = 'http://localhost:8080'
 RS_URL = 'http://localhost:8081'

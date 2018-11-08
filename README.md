@@ -6,7 +6,7 @@ https://tools.ietf.org/pdf/draft-ietf-ace-oauth-authz-12.pdf.
 ### Authorization Server
 The authorization server can be run using
 
-    python3 -m as
+    python examples/authz_server.py
 
 It binds to port number 8080 and issues CBOR Web Token (CWTs) access tokens. No security
 profile is implemented for the communication with the authorization server,
@@ -17,7 +17,7 @@ The resource server hosts some sample protected resources such as a
 simulated temperature sensor value as well as an LED value that can be 
 controlled via a request. The resource server can be run using
     
-    python3 -m rs
+    python examples/rs_http.py
     
 The RS will bind to port 8081.
     
@@ -34,5 +34,5 @@ The client requests an access token from the AS and uses the issued
 token to access the protected resources on the RS. The client can
 be run using
 
-    pyhton3 -m client
+    python examples/client_http.py
     

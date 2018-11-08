@@ -1,4 +1,3 @@
-requests
 aiohttp>=3.1.3
 aiocoap>=0.3
 git+git://github.com/agronholm/cbor2.git

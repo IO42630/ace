@@ -10,7 +10,7 @@ setup(name='ace-authz',
       install_requires=[
           'aiohttp>=3.1.3',
           'aiocoap>=0.3',
-          'cbor2==4.1.1.post1',
+          'cbor2==4.1.2.post3',
           'cryptography>=2.2.2',
           'ecdsa>=0.13'
       ],

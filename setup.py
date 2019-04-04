@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import find_packages, setup
 
 setup(name='ace-authz',
       version='0.1',
@@ -6,7 +6,7 @@ setup(name='ace-authz',
       url='https://github.com/DurandA/ace',
       author='Urs Gerber',
       author_email='ug.gerber@gmail.com',
-      packages=['ace'],
+      packages=find_packages(),
       install_requires=[
           'aiohttp>=3.1.3',
           'aiocoap>=0.3',

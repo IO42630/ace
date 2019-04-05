@@ -57,3 +57,19 @@ class CoAPClient(Client):
         decrypted_response = session.oscore_context.decrypt(payload)
 
         return loads(decrypted_response)
+
+    async def post_resource(self,
+                            session: AceSession,
+                            rs_url: str,
+                            endpoint: str, data: bytes):
+        await self.ensure_oscore_context(session, rs_url)
+
+        payload = session.oscore_context.encrypt(data)
+        request = aiocoap.Message(code = aiocoap.numbers.codes.Code.POST,
+                                  uri = f"{rs_url}{endpoint}",
+                                  payload = payload)
+        response = await self.protocol.request(request).response
+        assert response.code == aiocoap.CONTENT
+        decrypted_response = session.oscore_context.decrypt(response.payload)
+
+        return loads(decrypted_response)
